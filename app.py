@@ -1,6 +1,5 @@
 import streamlit as st
 import requests
-from bs4 import BeautifulSoup
 import spacy
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -9,9 +8,9 @@ import sys
 
 # Check for missing packages
 try:
-    from bs4 import BeautifulSoup
+    import spacy
 except ImportError:
-    st.error("Missing required package: beautifulsoup4. Run `pip install beautifulsoup4`")
+    st.error("Missing required package: spacy. Run `pip install spacy`")
     sys.exit(1)
 
 # Load spaCy model
@@ -23,15 +22,31 @@ except OSError:
 
 # Cache expensive operations
 @st.cache_data
-def scrape_wikipedia(url):
-    """Scrape text from a Wikipedia page."""
+def get_wikipedia_content(url):
+    """Get Wikipedia content using official API"""
     try:
-        response = requests.get(url, timeout=10)
+        # Extract page title from URL
+        page_title = url.split("/")[-1]
+        
+        # Use Wikipedia API
+        api_url = "https://en.wikipedia.org/w/api.php"
+        params = {
+            "action": "query",
+            "format": "json",
+            "titles": page_title,
+            "prop": "extracts",
+            "explaintext": True
+        }
+        
+        response = requests.get(api_url, params=params, timeout=10)
         response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        return ' '.join([p.get_text() for p in soup.find_all('p')])
+        
+        data = response.json()
+        page = next(iter(data["query"]["pages"].values()))
+        return page["extract"]
+        
     except Exception as e:
-        st.error(f"Scraping failed: {str(e)}")
+        st.error(f"Failed to fetch content: {str(e)}")
         return None
 
 @st.cache_data
@@ -69,14 +84,6 @@ def query_knowledge_base(query, knowledge_base):
 # Streamlit UI
 st.set_page_config(page_title="Study Assistant", page_icon="📚", layout="wide")
 
-# Custom CSS
-st.markdown("""
-    <style>
-    .stButton>button { background-color: #4CAF50; color: white; }
-    .stTextInput>div>div>input { font-size: 16px; padding: 10px; }
-    </style>
-    """, unsafe_allow_html=True)
-
 # App layout
 st.title("📚 Natural Resource Economics Study Assistant")
 url = st.text_input("Wikipedia URL:", value="https://en.wikipedia.org/wiki/Natural_resource_economics")
@@ -85,8 +92,8 @@ if st.button("🔍 Build Knowledge Base"):
     if not url.startswith("https://en.wikipedia.org/"):
         st.warning("Please enter a valid Wikipedia URL")
     else:
-        with st.spinner("Scraping and processing..."):
-            text = scrape_wikipedia(url)
+        with st.spinner("Fetching and processing content..."):
+            text = get_wikipedia_content(url)
             if text:
                 st.session_state.knowledge_base = build_knowledge_base(text)
                 st.success("Knowledge base ready!")
