@@ -1,26 +1,21 @@
 import streamlit as st
 import requests
 import pandas as pd
-import sys
+import numpy as np
+import torch
+from transformers import AutoTokenizer, AutoModel
+import spacy
+import matplotlib.pyplot as plt
 
-# ================== DEPENDENCY CHECKS ================== #
-try:
-    from transformers import AutoTokenizer, AutoModel
-    import torch
-except ImportError:
-    st.error("Missing transformers or torch. Installing...")
-    import subprocess
-    subprocess.run([sys.executable, "-m", "pip", "install", "transformers torch"])
-    st.experimental_rerun()
-
-# ================== BERT MODEL SETUP ================== #
+# ================== MODEL SETUP ================== #
 @st.cache_resource
-def load_model():
+def load_models():
     tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
     model = AutoModel.from_pretrained("bert-base-uncased")
-    return tokenizer, model
+    nlp = spacy.load("en_core_web_sm")
+    return tokenizer, model, nlp
 
-tokenizer, model = load_model()
+tokenizer, model, nlp = load_models()
 
 # ================== TEXT PROCESSING ================== #
 def get_sentence_embedding(text):
@@ -70,6 +65,46 @@ def query_knowledge_base(query, knowledge_base):
     most_similar_idx = similarities.argmax()
     return knowledge_base["texts"][most_similar_idx], similarities[most_similar_idx]
 
+# ================== EQUATION EXTRACTION ================== #
+def extract_equation_params(text):
+    doc = nlp(text.lower())
+    numbers = [float(token.text) for token in doc if token.like_num]
+
+    if len(numbers) < 4:
+        return None
+
+    demand_intercept, demand_slope, supply_intercept, supply_slope = numbers[:4]
+
+    demand_slope = -abs(demand_slope)
+
+    return demand_intercept, demand_slope, supply_intercept, supply_slope
+
+def calculate_equilibrium(demand_intercept, demand_slope, supply_intercept, supply_slope):
+    quantity_eq = (demand_intercept - supply_intercept) / (supply_slope - demand_slope)
+    price_eq = demand_intercept + demand_slope * quantity_eq
+
+    cs_eq = (demand_intercept - price_eq) * quantity_eq / 2
+    ps_eq = (price_eq - supply_intercept) * quantity_eq / 2
+    sw_eq = cs_eq + ps_eq
+
+    return round(quantity_eq, 2), round(price_eq, 2), round(cs_eq, 2), round(ps_eq, 2), round(sw_eq, 2)
+
+def plot_market(demand_intercept, demand_slope, supply_intercept, supply_slope, quantity_eq, price_eq, market_name):
+    q_range = np.linspace(0, quantity_eq * 1.5, 100)
+    demand_curve = demand_intercept + demand_slope * q_range
+    supply_curve = supply_intercept + supply_slope * q_range
+
+    plt.figure(figsize=(8, 6))
+    plt.plot(q_range, demand_curve, label="Demand Curve", color="blue")
+    plt.plot(q_range, supply_curve, label="Supply Curve", color="green")
+    plt.axhline(y=price_eq, color='red', linestyle='--', label="Equilibrium Price")
+    plt.axvline(x=quantity_eq, color='purple', linestyle='--', label="Equilibrium Quantity")
+    plt.xlabel("Quantity")
+    plt.ylabel("Price")
+    plt.title(f"Market Equilibrium: {market_name}")
+    plt.legend()
+    st.pyplot(plt)
+
 # ================== STREAMLIT UI ================== #
 st.set_page_config(page_title="Study Assistant", page_icon="📚", layout="wide")
 st.title("📚 Natural Resource Economics Study Assistant")
@@ -93,3 +128,30 @@ if "knowledge_base" in st.session_state:
         st.subheader("Top Result")
         st.write(f"**Relevance:** {score:.2f}/1.00")
         st.write(result)
+
+st.header("⚖️ Market Equilibrium Solver")
+
+user_query = st.text_area("Describe the market conditions (e.g., 'Demand has an intercept of 100 and slope of -2, Supply has an intercept of 20 and slope of 3.'):")
+
+if st.button("Calculate Equilibrium"):
+    params = extract_equation_params(user_query)
+    if params:
+        demand_intercept, demand_slope, supply_intercept, supply_slope = params
+
+        # Compute Equilibrium
+        quantity_eq, price_eq, cs_eq, ps_eq, sw_eq = calculate_equilibrium(
+            demand_intercept, demand_slope, supply_intercept, supply_slope
+        )
+
+        # Display Results
+        st.subheader("Equilibrium Results")
+        st.write(f"**Equilibrium Quantity:** {quantity_eq}")
+        st.write(f"**Equilibrium Price:** {price_eq}")
+        st.write(f"**Consumer Surplus:** {cs_eq}")
+        st.write(f"**Producer Surplus:** {ps_eq}")
+        st.write(f"**Social Welfare:** {sw_eq}")
+
+        # Plot the market
+        plot_market(demand_intercept, demand_slope, supply_intercept, supply_slope, quantity_eq, price_eq, "Market Analysis")
+    else:
+        st.warning("Please provide at least 4 numerical values for the intercepts and slopes.")
