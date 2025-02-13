@@ -1,29 +1,40 @@
 import streamlit as st
 import requests
-import spacy
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import sys
 
-# Check for missing packages
+# Step 1: Check for spaCy installation
 try:
     import spacy
 except ImportError:
-    st.error("Missing required package: spacy. Run `pip install spacy`")
-    sys.exit(1)
+    st.error("Missing required package: spacy. Please wait while we try to install it...")
+    try:
+        import subprocess
+        subprocess.run([sys.executable, "-m", "pip", "install", "spacy"])
+        st.experimental_rerun()  # Restart the app after installation
+    except Exception as e:
+        st.error(f"Failed to install spacy: {str(e)}")
+    st.stop()  # Stop the app if spaCy cannot be installed
 
-# Load spaCy model
+# Step 2: Load spaCy model with fallback
 try:
     nlp = spacy.load("en_core_web_sm")
-except OSError:
-    st.error("spaCy English model missing. Run `python -m spacy download en_core_web_sm`")
-    sys.exit(1)
+except (OSError, AttributeError):
+    st.warning("English model missing. Installing... (this may take 2-3 minutes)")
+    try:
+        from spacy.cli import download
+        download("en_core_web_sm")  # Download the English model
+        st.experimental_rerun()  # Restart the app after model installation
+    except Exception as e:
+        st.error(f"Model installation failed: {str(e)}")
+        st.stop()  # Stop the app if the model cannot be installed
 
-# Cache expensive operations
+# Step 3: Cache expensive operations
 @st.cache_data
 def get_wikipedia_content(url):
-    """Get Wikipedia content using official API"""
+    """Get Wikipedia content using official API."""
     try:
         # Extract page title from URL
         page_title = url.split("/")[-1]
@@ -39,7 +50,7 @@ def get_wikipedia_content(url):
         }
         
         response = requests.get(api_url, params=params, timeout=10)
-        response.raise_for_status()
+        response.raise_for_status()  # Raise an error for bad responses
         
         data = response.json()
         page = next(iter(data["query"]["pages"].values()))
@@ -81,7 +92,7 @@ def query_knowledge_base(query, knowledge_base):
     most_similar_idx = similarities.argmax()
     return knowledge_base["texts"][most_similar_idx], similarities[most_similar_idx]
 
-# Streamlit UI
+# Step 4: Streamlit UI
 st.set_page_config(page_title="Study Assistant", page_icon="📚", layout="wide")
 
 # App layout
