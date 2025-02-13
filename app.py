@@ -6,16 +6,49 @@ import torch
 from transformers import AutoTokenizer, AutoModel
 import spacy
 import matplotlib.pyplot as plt
+import sys
+
+# ================== DEPENDENCY CHECKS ================== #
+try:
+    import torch
+except ImportError:
+    st.error("Missing PyTorch. Installing...")
+    import subprocess
+    subprocess.run([sys.executable, "-m", "pip", "install", "torch==2.0.1"])
+    st.experimental_rerun()
+
+try:
+    from transformers import AutoTokenizer, AutoModel
+except ImportError:
+    st.error("Missing transformers. Installing...")
+    import subprocess
+    subprocess.run([sys.executable, "-m", "pip", "install", "transformers==4.30.2"])
+    st.experimental_rerun()
+
+try:
+    import spacy
+except ImportError:
+    st.error("Missing spacy. Installing...")
+    import subprocess
+    subprocess.run([sys.executable, "-m", "pip", "install", "spacy==3.7.4"])
+    st.experimental_rerun()
+
+try:
+    nlp = spacy.load("en_core_web_sm")
+except OSError:
+    st.warning("Installing English model...")
+    from spacy.cli import download
+    download("en_core_web_sm")
+    st.experimental_rerun()
 
 # ================== MODEL SETUP ================== #
 @st.cache_resource
 def load_models():
     tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
     model = AutoModel.from_pretrained("bert-base-uncased")
-    nlp = spacy.load("en_core_web_sm")
-    return tokenizer, model, nlp
+    return tokenizer, model
 
-tokenizer, model, nlp = load_models()
+tokenizer, model = load_models()
 
 # ================== TEXT PROCESSING ================== #
 def get_sentence_embedding(text):
