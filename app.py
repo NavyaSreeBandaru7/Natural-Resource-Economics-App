@@ -14,22 +14,31 @@ except ImportError:
     st.experimental_rerun()
 
 try:
-    import spacy
+    from transformers import AutoTokenizer, AutoModel
+    import torch
 except ImportError:
-    st.error("Missing spacy. Installing...")
+    st.error("Missing transformers. Installing...")
     import subprocess
-    subprocess.run([sys.executable, "-m", "pip", "install", "spacy==3.7.4"])
+    subprocess.run([sys.executable, "-m", "pip", "install", "transformers torch"])
     st.experimental_rerun()
 
-try:
-    nlp = spacy.load("en_core_web_sm")
-except OSError:
-    st.warning("Installing English model...")
-    from spacy.cli import download
-    download("en_core_web_sm")
-    st.experimental_rerun()
+# ================== BERT MODEL SETUP ================== #
+@st.cache_resource
+def load_model():
+    tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+    model = AutoModel.from_pretrained("bert-base-uncased")
+    return tokenizer, model
 
-# ================== CORE FUNCTIONALITY ================== #
+tokenizer, model = load_model()
+
+# ================== TEXT PROCESSING ================== #
+def get_sentence_embedding(text):
+    inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True)
+    with torch.no_grad():
+        outputs = model(**inputs)
+        embeddings = outputs.last_hidden_state.mean(dim=1)
+    return embeddings
+
 @st.cache_data
 def get_wikipedia_content(url):
     try:
@@ -52,30 +61,18 @@ def get_wikipedia_content(url):
         return None
 
 @st.cache_data
-def preprocess(text):
-    doc = nlp(text)
-    return ' '.join([
-        token.lemma_.lower()
-        for token in doc
-        if not token.is_stop and not token.is_punct
-    ])
-
-@st.cache_data
 def build_knowledge_base(text):
-    sentences = [sent.text.strip() for sent in nlp(text).sents if len(sent.text.strip()) > 10]
+    sentences = [sent.strip() for sent in text.split('.') if len(sent.strip()) > 10]
     df = pd.DataFrame(sentences, columns=["text"])
-    df["processed_text"] = df["text"].apply(preprocess)
-    vectorizer = TfidfVectorizer()
+    df["embeddings"] = df["text"].apply(lambda x: get_sentence_embedding(x))
     return {
-        "tfidf_matrix": vectorizer.fit_transform(df["processed_text"]),
-        "texts": df["text"].tolist(),
-        "vectorizer": vectorizer
+        "embeddings": torch.vstack(df["embeddings"].tolist()),
+        "texts": df["text"].tolist()
     }
 
 def query_knowledge_base(query, knowledge_base):
-    query_processed = preprocess(query)
-    query_vector = knowledge_base["vectorizer"].transform([query_processed])
-    similarities = cosine_similarity(query_vector, knowledge_base["tfidf_matrix"]).flatten()
+    query_embedding = get_sentence_embedding(query)
+    similarities = cosine_similarity(query_embedding, knowledge_base["embeddings"]).flatten()
     most_similar_idx = similarities.argmax()
     return knowledge_base["texts"][most_similar_idx], similarities[most_similar_idx]
 
@@ -93,7 +90,7 @@ if st.button("🔍 Build Knowledge Base"):
             text = get_wikipedia_content(url)
             if text:
                 st.session_state.knowledge_base = build_knowledge_base(text)
-                st.success("Ready!")
+                st.success("Knowledge Base Ready!")
 
 if "knowledge_base" in st.session_state:
     query = st.text_input("Ask a question:")
