@@ -5,19 +5,10 @@ import sys
 
 # ================== DEPENDENCY CHECKS ================== #
 try:
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    from sklearn.metrics.pairwise import cosine_similarity
-except ImportError:
-    st.error("Missing scikit-learn. Installing...")
-    import subprocess
-    subprocess.run([sys.executable, "-m", "pip", "install", "scikit-learn==1.3.0"])
-    st.experimental_rerun()
-
-try:
     from transformers import AutoTokenizer, AutoModel
     import torch
 except ImportError:
-    st.error("Missing transformers. Installing...")
+    st.error("Missing transformers or torch. Installing...")
     import subprocess
     subprocess.run([sys.executable, "-m", "pip", "install", "transformers torch"])
     st.experimental_rerun()
@@ -69,6 +60,9 @@ def build_knowledge_base(text):
         "embeddings": torch.vstack(df["embeddings"].tolist()),
         "texts": df["text"].tolist()
     }
+
+def cosine_similarity(embedding1, embedding2):
+    return torch.nn.functional.cosine_similarity(embedding1, embedding2).cpu().numpy()
 
 def query_knowledge_base(query, knowledge_base):
     query_embedding = get_sentence_embedding(query)
